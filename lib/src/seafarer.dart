@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:path_to_regexp/path_to_regexp.dart';
 import 'package:seafarer/src/errors/param_not_provided.dart';
 import 'package:seafarer/src/errors/param_not_registered.dart';
 import 'package:seafarer/src/errors/route_not_found.dart';
@@ -122,6 +125,8 @@ class Seafarer {
       AppLogger.instance.warning(
           "'${route.name}' has already been registered before. Overriding it!");
     }
+
+    _checkAndThrowRouteParamNotFound(route);
 
     // Prepare route params
     final routeParams = <String, SeafarerParam>{};
@@ -307,11 +312,20 @@ class Seafarer {
     CustomSeafarerTransition? customTransition,
   ) async {
     final routeParams = _routeParamsMappings[name];
+
+    String path = name;
+
     if (routeParams != null) {
+      final toPath = pathToFunction(name);
+      path = toPath(_cleanupParam(params));
+      print(path);
+
       routeParams.forEach((key, value) {
         // Type of paramter passed should be the same
         // when type is declared.
-        if (params!.containsKey(value.name) && params[value.name] != null) {
+        if (params != null &&
+            params.containsKey(value.name) &&
+            params[value.name] != null) {
           final passedParamType = params[value.name].runtimeType;
           if (passedParamType != value.paramType) {
             AppLogger.instance.warning("Invalid Parameter Type! "
@@ -321,8 +335,8 @@ class Seafarer {
         }
 
         // All paramters that are 'required' should be passed.
-        bool isMissingRequiredParam = value.isRequired &&
-            (!params.containsKey(value.name));
+        bool isMissingRequiredParam =
+            value.isRequired && (!params!.containsKey(value.name));
 
         if (isMissingRequiredParam) {
           AppLogger.instance.warning(ParameterNotProvidedError(
@@ -372,21 +386,21 @@ class Seafarer {
         return this
             .navigatorKey!
             .currentState!
-            .pushNamed(name, arguments: argsWrapper);
+            .pushNamed(path, arguments: argsWrapper);
       case NavigationType.pushReplace:
         return this
             .navigatorKey!
             .currentState!
-            .pushReplacementNamed(name, result: result, arguments: argsWrapper);
+            .pushReplacementNamed(path, result: result, arguments: argsWrapper);
       case NavigationType.pushAndRemoveUntil:
         return this.navigatorKey!.currentState!.pushNamedAndRemoveUntil(
-            name, removeUntilPredicate!,
+            path, removeUntilPredicate!,
             arguments: argsWrapper);
       case NavigationType.popAndPushNamed:
         return this
             .navigatorKey!
             .currentState!
-            .popAndPushNamed(name, result: result, arguments: argsWrapper);
+            .popAndPushNamed(path, result: result, arguments: argsWrapper);
     }
   }
 
@@ -397,7 +411,7 @@ class Seafarer {
     BaseArguments? args,
     NavigationType navigationType,
   ) {
-
+    print(_routeNameMappings.toString());
     if (!_routeNameMappings.containsKey(name)) {
       if (this.options.handleNameNotFoundUI) {
         this.navigatorKey!.currentState!.push(
@@ -414,6 +428,28 @@ class Seafarer {
     }
   }
 
+  /// If the route name has param
+  /// Make sure to pass valid param name while adding route.
+  void _checkAndThrowRouteParamNotFound(
+    SeafarerRoute route,
+  ) {
+    final params = <String>[];
+    pathToRegExp(route.name, parameters: params);
+
+    if (params.length > 0) {
+      for (int i = 0; i < params.length; i += 1) {
+        final foundParam = (route.params ?? []).firstWhere(
+          (param) => param.name == params[i],
+        );
+
+        if (foundParam == null) {
+          throw ParamNotRegisteredError(
+              routeName: route.name, paramKey: params[i]);
+        }
+      }
+    }
+  }
+
   /// Delegation for [Navigator.pop].
   void pop([dynamic result]) {
     this.navigatorKey!.currentState!.pop(result);
@@ -421,7 +457,10 @@ class Seafarer {
 
   /// Delegation for [Navigator.popUntil].
   void popUntil(void Function(Route<dynamic>) predicate) {
-    this.navigatorKey!.currentState!.popUntil(predicate as bool Function(Route<dynamic>));
+    this
+        .navigatorKey!
+        .currentState!
+        .popUntil(predicate as bool Function(Route<dynamic>));
   }
 
   /// Generates the [RouteFactory] which builds a [Route] on request.
@@ -430,7 +469,13 @@ class Seafarer {
   /// [addRoute] method.
   RouteFactory generator() {
     return (settings) {
-      final route = _routeNameMappings[settings.name!];
+      print(settings);
+      final SeafarerRoute? route =
+          _routeNameMappings.entries.map((e) => e).firstWhere((it) {
+        final parameters = <String>[];
+        final regExp = pathToRegExp(it.key, parameters: parameters);
+        return regExp.hasMatch(settings.name!);
+      }).value;
 
       if (route == null) return null;
 
@@ -452,7 +497,8 @@ class Seafarer {
       final List<SeafarerTransition> transitions = [];
 
       final bool areTransitionsProvidedInNavigate =
-          argsWrapper.transitions != null && argsWrapper.transitions!.isNotEmpty;
+          argsWrapper.transitions != null &&
+              argsWrapper.transitions!.isNotEmpty;
       final bool areTransitionsProvidedInRouteDeclaration =
           route.defaultTransitions != null &&
               route.defaultTransitions!.isNotEmpty;
@@ -494,12 +540,16 @@ class Seafarer {
         shouldUseCustomTransition = false;
       }
 
+      final toPath = pathToFunction(route.name);
+      final path = toPath(_cleanupParam(argsWrapper.params ?? {}));
       RouteSettings routeSettings = RouteSettings(
-        name: settings.name,
+        name: path,
         arguments: argsWrapper.copyWith(
           baseArguments: baseArgs != null ? baseArgs : route.defaultArgs,
         ),
       );
+
+      print('ppp -> $path');
 
       return TransitionFactory.buildTransition(
         transitions: transitions,
@@ -511,7 +561,7 @@ class Seafarer {
           context,
           baseArgs ?? route.defaultArgs,
           ParamMap(
-            route.name,
+            path,
             argsWrapper!.routeParams,
             argsWrapper.params,
           ),
@@ -532,6 +582,12 @@ class Seafarer {
         },
       );
     };
+  }
+
+  static Map<String, String> _cleanupParam(Map<String, dynamic>? params) {
+    final _params = params ?? {};
+    _params.removeWhere((key, value) => value == null);
+    return _params.cast<String, String>();
   }
 }
 

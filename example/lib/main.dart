@@ -37,13 +37,13 @@ class Home extends StatelessWidget {
               child: Text('Open Second Page'),
               onPressed: () async {
                 final response = await Routes.seafarer.navigate<bool>(
-                  "/secondPage",
+                  "/secondPage/:id",
                   transitions: [
                     SeafarerTransition.slide_from_top,
                   ],
                   customTransition: MyCustomTransition(),
                   params: {
-                    'id': null,
+                    'id': '1',
                   },
                 );
 
@@ -117,7 +117,7 @@ class SecondPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final args = Seafarer.args<SecondPageArgs>(context);
-    final id = Seafarer.param<int>(context, 'id');
+    final id = Seafarer.param<String>(context, 'id');
 
     return Scaffold(
       appBar: AppBar(
@@ -234,7 +234,9 @@ class PushReplacePage extends StatelessWidget {
 }
 
 class Routes {
-  static final seafarer = seafarer(
+  Routes._();
+
+  static final seafarer = Seafarer(
     options: SeafarerOptions(
       handleNameNotFoundUI: true,
       isLoggingEnabled: true,
@@ -252,7 +254,7 @@ class Routes {
     seafarer.addRoutes(
       [
         SeafarerRoute(
-          name: "/secondPage",
+          name: "/secondPage/:id",
           builder: (context, args, params) => SecondPage(),
           defaultArgs: SecondPageArgs('From default arguments!'),
           customTransition: MyCustomTransition(),
@@ -265,12 +267,12 @@ class Routes {
             SeafarerTransition.slide_from_bottom,
             SeafarerTransition.zoom_in,
           ],
-          routeGuards: [
-            SeafarerRouteGuard.simple((context, args, params) async {
-              return true;
-            }),
-            CustomRouteGuard(),
-          ],
+          // routeGuards: [
+          //   SeafarerRouteGuard.simple((context, args, params) async {
+          //     return true;
+          //   }),
+          //   CustomRouteGuard(),
+          // ],
         ),
         SeafarerRoute(
           name: "/thirdPage",
